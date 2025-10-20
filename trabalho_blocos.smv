@@ -1,0 +1,210 @@
+MODULE main
+
+--[[
+  Trabalho de Fundamentos de Inteligência Artificial
+  Problema: Mundo dos Blocos com Tamanhos Variáveis via Model Checking
+  
+  Este modelo representa o problema de planejamento com 4 blocos (a, b, c, d)
+  de tamanhos diferentes sobre uma mesa com 7 slots (0 a 6).
+
+  - Bloco 'a': tamanho 1
+  - Bloco 'b': tamanho 1
+  - Bloco 'c': tamanho 2
+  - Bloco 'd': tamanho 2
+
+  A lógica implementa as seguintes restrições físicas e lógicas:
+  1. Mobilidade: Um bloco só pode ser movido se estiver livre (nada sobre ele).
+  2. Estabilidade: Um bloco só pode ser colocado sobre outro de tamanho igual ou maior.
+  3. Ocupação de Espaço: Um bloco movido para a mesa precisa de um número contíguo
+     de slots livres correspondente ao seu tamanho.
+]]
+
+VAR
+    -- Para cada bloco, definimos seu suporte (outro bloco ou a mesa) e sua posição.
+    -- A 'pos' é a coordenada do slot mais à esquerda que o bloco ocupa.
+    on_a: {table, b, c, d};
+    pos_a: 0..6;
+    on_b: {table, a, c, d};
+    pos_b: 0..6;
+    on_c: {table, a, b, d};
+    pos_c: 0..6;
+    on_d: {table, a, b, c};
+    pos_d: 0..6;
+
+    -- A variável 'move' representa a ação não-determinística a ser tomada em cada passo.
+    move: {
+        none,
+        -- Movimentos para o bloco 'a' (tamanho 1)
+        move_a_on_b, move_a_on_c, move_a_on_d,
+        move_a_table_0, move_a_table_1, move_a_table_2, move_a_table_3, move_a_table_4, move_a_table_5, move_a_table_6,
+        
+        -- Movimentos para o bloco 'b' (tamanho 1)
+        move_b_on_a, move_b_on_c, move_b_on_d,
+        move_b_table_0, move_b_table_1, move_b_table_2, move_b_table_3, move_b_table_4, move_b_table_5, move_b_table_6,
+        
+        -- Movimentos para o bloco 'c' (tamanho 2)
+        move_c_on_d, -- 'c' só pode ir sobre 'd' (tamanho 2)
+        move_c_table_0, move_c_table_1, move_c_table_2, move_c_table_3, move_c_table_4, move_c_table_5,
+        
+        -- Movimentos para o bloco 'd' (tamanho 2)
+        move_d_on_c, -- 'd' só pode ir sobre 'c' (tamanho 2)
+        move_d_table_0, move_d_table_1, move_d_table_2, move_d_table_3, move_d_table_4, move_d_table_5
+    };
+
+DEFINE
+    -- Propriedades físicas (estáticas) dos blocos
+    size_a := 1;
+    size_b := 1;
+    size_c := 2;
+    size_d := 2;
+
+    -- Um bloco está 'livre' (clear) se nenhum outro bloco estiver sobre ele
+    clear_a := (on_b != a) & (on_c != a) & (on_d != a);
+    clear_b := (on_a != b) & (on_c != b) & (on_d != b);
+    clear_c := (on_a != c) & (on_b != c) & (on_d != c);
+    clear_d := (on_a != d) & (on_b != d) & (on_c != d);
+
+    -- Posição absoluta (coordenada mais à esquerda) de cada bloco
+    -- Se um bloco está sobre outro, sua posição absoluta é a mesma do bloco de suporte.
+    abs_pos_d := on_d = table ? pos_d : (on_d = c ? abs_pos_c : (on_d = b ? abs_pos_b : abs_pos_a));
+    abs_pos_c := on_c = table ? pos_c : (on_c = d ? abs_pos_d : (on_c = b ? abs_pos_b : abs_pos_a));
+    abs_pos_b := on_b = table ? pos_b : (on_b = d ? abs_pos_d : (on_b = c ? abs_pos_c : abs_pos_a));
+    abs_pos_a := on_a = table ? pos_a : (on_a = d ? abs_pos_d : (on_a = c ? abs_pos_c : abs_pos_b));
+    
+    -- Macro para verificar se um intervalo de slots está livre para um bloco 'moving_block'
+    -- Verifica contra todos os 'other_block' que estão na mesa.
+    -- Retorna TRUE se não houver sobreposição.
+    -- overlap(pos1, size1, pos2, size2) := (pos1 <= pos2 + size2 - 1) & (pos2 <= pos1 + size1 - 1);
+    is_space_free(moving_block_pos, moving_block_size, other_block_on, other_block_abs_pos, other_block_size) :=
+        (other_block_on = table) -> 
+            !((moving_block_pos <= other_block_abs_pos + other_block_size - 1) & (other_block_abs_pos <= moving_block_pos + moving_block_size - 1));
+
+-- ESTADO INICIAL: Configuração S0 da "Situação 3"
+[cite_start]-- Pilha: c sobre a, a sobre b, b sobre d, d na mesa na posição 0. [cite: 195]
+INIT
+    (on_d = table & pos_d = 0) &
+    (on_b = d) &
+    (on_a = b) &
+    (on_c = a);
+    
+-- ESTADO OBJETIVO: Configuração final da "Situação 3" (baseado na análise em Prolog)
+[cite_start]-- Pilha: d sobre c, c sobre a, a sobre b, b na mesa na posição 2. [cite: 200]
+DEFINE
+    goal := (on_b = table & pos_b = 2) & (on_a = b) & (on_c = a) & (on_d = c);
+
+-- TRANSIÇÕES: Define como o estado do mundo muda baseado na ação 'move'
+ASSIGN
+    -- Transições para o Bloco A
+    next(on_a) := case
+        -- Mover 'a' sobre 'b'
+        move = move_a_on_b & clear_a & clear_b & on_a != b & a != b : b;
+        -- Mover 'a' sobre 'c'
+        move = move_a_on_c & clear_a & clear_c & on_a != c & a != c : c;
+        -- Mover 'a' sobre 'd'
+        move = move_a_on_d & clear_a & clear_d & on_a != d & a != d : d;
+        -- Mover 'a' para a mesa (verifica se o espaço está livre)
+        move = move_a_table_0 & clear_a & is_space_free(0, size_a, on_b, abs_pos_b, size_b) & is_space_free(0, size_a, on_c, abs_pos_c, size_c) & is_space_free(0, size_a, on_d, abs_pos_d, size_d) : table;
+        move = move_a_table_1 & clear_a & is_space_free(1, size_a, on_b, abs_pos_b, size_b) & is_space_free(1, size_a, on_c, abs_pos_c, size_c) & is_space_free(1, size_a, on_d, abs_pos_d, size_d) : table;
+        move = move_a_table_2 & clear_a & is_space_free(2, size_a, on_b, abs_pos_b, size_b) & is_space_free(2, size_a, on_c, abs_pos_c, size_c) & is_space_free(2, size_a, on_d, abs_pos_d, size_d) : table;
+        move = move_a_table_3 & clear_a & is_space_free(3, size_a, on_b, abs_pos_b, size_b) & is_space_free(3, size_a, on_c, abs_pos_c, size_c) & is_space_free(3, size_a, on_d, abs_pos_d, size_d) : table;
+        move = move_a_table_4 & clear_a & is_space_free(4, size_a, on_b, abs_pos_b, size_b) & is_space_free(4, size_a, on_c, abs_pos_c, size_c) & is_space_free(4, size_a, on_d, abs_pos_d, size_d) : table;
+        move = move_a_table_5 & clear_a & is_space_free(5, size_a, on_b, abs_pos_b, size_b) & is_space_free(5, size_a, on_c, abs_pos_c, size_c) & is_space_free(5, size_a, on_d, abs_pos_d, size_d) : table;
+        move = move_a_table_6 & clear_a & is_space_free(6, size_a, on_b, abs_pos_b, size_b) & is_space_free(6, size_a, on_c, abs_pos_c, size_c) & is_space_free(6, size_a, on_d, abs_pos_d, size_d) : table;
+        TRUE: on_a;
+    esac;
+
+    next(pos_a) := case
+        (next(on_a) = b) : next(abs_pos_b); -- Se move para um bloco, herda a posição
+        (next(on_a) = c) : next(abs_pos_c);
+        (next(on_a) = d) : next(abs_pos_d);
+        move = move_a_table_0 & next(on_a) = table : 0; -- Se move para a mesa, assume a nova posição
+        move = move_a_table_1 & next(on_a) = table : 1;
+        move = move_a_table_2 & next(on_a) = table : 2;
+        move = move_a_table_3 & next(on_a) = table : 3;
+        move = move_a_table_4 & next(on_a) = table : 4;
+        move = move_a_table_5 & next(on_a) = table : 5;
+        move = move_a_table_6 & next(on_a) = table : 6;
+        TRUE: pos_a;
+    esac;
+
+    -- Transições para o Bloco B (lógica similar ao bloco A)
+    next(on_b) := case
+        move = move_b_on_a & clear_b & clear_a & on_b != a & b != a : a;
+        move = move_b_on_c & clear_b & clear_c & on_b != c & b != c : c;
+        move = move_b_on_d & clear_b & clear_d & on_b != d & b != d : d;
+        move = move_b_table_0 & clear_b & is_space_free(0, size_b, on_a, abs_pos_a, size_a) & is_space_free(0, size_b, on_c, abs_pos_c, size_c) & is_space_free(0, size_b, on_d, abs_pos_d, size_d) : table;
+        move = move_b_table_1 & clear_b & is_space_free(1, size_b, on_a, abs_pos_a, size_a) & is_space_free(1, size_b, on_c, abs_pos_c, size_c) & is_space_free(1, size_b, on_d, abs_pos_d, size_d) : table;
+        move = move_b_table_2 & clear_b & is_space_free(2, size_b, on_a, abs_pos_a, size_a) & is_space_free(2, size_b, on_c, abs_pos_c, size_c) & is_space_free(2, size_b, on_d, abs_pos_d, size_d) : table;
+        move = move_b_table_3 & clear_b & is_space_free(3, size_b, on_a, abs_pos_a, size_a) & is_space_free(3, size_b, on_c, abs_pos_c, size_c) & is_space_free(3, size_b, on_d, abs_pos_d, size_d) : table;
+        move = move_b_table_4 & clear_b & is_space_free(4, size_b, on_a, abs_pos_a, size_a) & is_space_free(4, size_b, on_c, abs_pos_c, size_c) & is_space_free(4, size_b, on_d, abs_pos_d, size_d) : table;
+        move = move_b_table_5 & clear_b & is_space_free(5, size_b, on_a, abs_pos_a, size_a) & is_space_free(5, size_b, on_c, abs_pos_c, size_c) & is_space_free(5, size_b, on_d, abs_pos_d, size_d) : table;
+        move = move_b_table_6 & clear_b & is_space_free(6, size_b, on_a, abs_pos_a, size_a) & is_space_free(6, size_b, on_c, abs_pos_c, size_c) & is_space_free(6, size_b, on_d, abs_pos_d, size_d) : table;
+        TRUE: on_b;
+    esac;
+
+    next(pos_b) := case
+        (next(on_b) = a) : next(abs_pos_a);
+        (next(on_b) = c) : next(abs_pos_c);
+        (next(on_b) = d) : next(abs_pos_d);
+        move = move_b_table_0 & next(on_b) = table : 0;
+        move = move_b_table_1 & next(on_b) = table : 1;
+        move = move_b_table_2 & next(on_b) = table : 2;
+        move = move_b_table_3 & next(on_b) = table : 3;
+        move = move_b_table_4 & next(on_b) = table : 4;
+        move = move_b_table_5 & next(on_b) = table : 5;
+        move = move_b_table_6 & next(on_b) = table : 6;
+        TRUE: pos_b;
+    esac;
+
+    -- Transições para o Bloco C
+    next(on_c) := case
+        [cite_start]-- Restrição de estabilidade: 'c' (size 2) só pode ir sobre 'd' (size 2) [cite: 140]
+        move = move_c_on_d & clear_c & clear_d & on_c != d & c != d & (size_c <= size_d) : d;
+        move = move_c_table_0 & clear_c & is_space_free(0, size_c, on_a, abs_pos_a, size_a) & is_space_free(0, size_c, on_b, abs_pos_b, size_b) & is_space_free(0, size_c, on_d, abs_pos_d, size_d) : table;
+        move = move_c_table_1 & clear_c & is_space_free(1, size_c, on_a, abs_pos_a, size_a) & is_space_free(1, size_c, on_b, abs_pos_b, size_b) & is_space_free(1, size_c, on_d, abs_pos_d, size_d) : table;
+        move = move_c_table_2 & clear_c & is_space_free(2, size_c, on_a, abs_pos_a, size_a) & is_space_free(2, size_c, on_b, abs_pos_b, size_b) & is_space_free(2, size_c, on_d, abs_pos_d, size_d) : table;
+        move = move_c_table_3 & clear_c & is_space_free(3, size_c, on_a, abs_pos_a, size_a) & is_space_free(3, size_c, on_b, abs_pos_b, size_b) & is_space_free(3, size_c, on_d, abs_pos_d, size_d) : table;
+        move = move_c_table_4 & clear_c & is_space_free(4, size_c, on_a, abs_pos_a, size_a) & is_space_free(4, size_c, on_b, abs_pos_b, size_b) & is_space_free(4, size_c, on_d, abs_pos_d, size_d) : table;
+        move = move_c_table_5 & clear_c & is_space_free(5, size_c, on_a, abs_pos_a, size_a) & is_space_free(5, size_c, on_b, abs_pos_b, size_b) & is_space_free(5, size_c, on_d, abs_pos_d, size_d) : table;
+        TRUE: on_c;
+    esac;
+
+    next(pos_c) := case
+        (next(on_c) = d) : next(abs_pos_d);
+        move = move_c_table_0 & next(on_c) = table : 0;
+        move = move_c_table_1 & next(on_c) = table : 1;
+        move = move_c_table_2 & next(on_c) = table : 2;
+        move = move_c_table_3 & next(on_c) = table : 3;
+        move = move_c_table_4 & next(on_c) = table : 4;
+        move = move_c_table_5 & next(on_c) = table : 5;
+        TRUE: pos_c;
+    esac;
+
+    -- Transições para o Bloco D
+    next(on_d) := case
+        [cite_start]-- Restrição de estabilidade: 'd' (size 2) só pode ir sobre 'c' (size 2) [cite: 140]
+        move = move_d_on_c & clear_d & clear_c & on_d != c & d != c & (size_d <= size_c) : c;
+        move = move_d_table_0 & clear_d & is_space_free(0, size_d, on_a, abs_pos_a, size_a) & is_space_free(0, size_d, on_b, abs_pos_b, size_b) & is_space_free(0, size_d, on_c, abs_pos_c, size_c) : table;
+        move = move_d_table_1 & clear_d & is_space_free(1, size_d, on_a, abs_pos_a, size_a) & is_space_free(1, size_d, on_b, abs_pos_b, size_b) & is_space_free(1, size_d, on_c, abs_pos_c, size_c) : table;
+        move = move_d_table_2 & clear_d & is_space_free(2, size_d, on_a, abs_pos_a, size_a) & is_space_free(2, size_d, on_b, abs_pos_b, size_b) & is_space_free(2, size_d, on_c, abs_pos_c, size_c) : table;
+        move = move_d_table_3 & clear_d & is_space_free(3, size_d, on_a, abs_pos_a, size_a) & is_space_free(3, size_d, on_b, abs_pos_b, size_b) & is_space_free(3, size_d, on_c, abs_pos_c, size_c) : table;
+        move = move_d_table_4 & clear_d & is_space_free(4, size_d, on_a, abs_pos_a, size_a) & is_space_free(4, size_d, on_b, abs_pos_b, size_b) & is_space_free(4, size_d, on_c, abs_pos_c, size_c) : table;
+        move = move_d_table_5 & clear_d & is_space_free(5, size_d, on_a, abs_pos_a, size_a) & is_space_free(5, size_d, on_b, abs_pos_b, size_b) & is_space_free(5, size_d, on_c, abs_pos_c, size_c) : table;
+        TRUE: on_d;
+    esac;
+
+    next(pos_d) := case
+        (next(on_d) = c) : next(abs_pos_c);
+        move = move_d_table_0 & next(on_d) = table : 0;
+        move = move_d_table_1 & next(on_d) = table : 1;
+        move = move_d_table_2 & next(on_d) = table : 2;
+        move = move_d_table_3 & next(on_d) = table : 3;
+        move = move_d_table_4 & next(on_d) = table : 4;
+        move = move_d_table_5 & next(on_d) = table : 5;
+        TRUE: pos_d;
+    esac;
+
+-- ESPECIFICAÇÃO CTL: Encontrar um plano para alcançar o estado 'goal'
+[cite_start]-- A propriedade afirma que o objetivo NUNCA é alcançável. [cite: 321]
+[cite_start]-- Se for FALSA, o NuSMV gera um contra-exemplo, que é o plano de ações. [cite: 322]
+CTLSPEC !EF(goal);
