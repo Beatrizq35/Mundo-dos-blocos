@@ -1,290 +1,197 @@
 MODULE main
 
--- Trabalho de Fundamentos de Inteligência Artificial
--- Problema: Mundo dos Blocos com Tamanhos Variáveis via Model Checking
+-- Define constantes para legibilidade
+DEFINE
+  TABLE_SIZE := 7; -- Baseado nos diagramas [0..6]
+  
+  -- Tamanhos inferidos dos diagramas
+  size_a := 1;
+  size_b := 1;
+  size_c := 1;
+  size_d := 2;
+
+  -- "Enumeradores" para blocos e alvos
+  -- 0=table, 1=a, 2=b, 3=c, 4=d
+  target_table := 0;
+  target_a     := 1;
+  target_b     := 2;
+  target_c     := 3;
+  target_d     := 4;
 
 VAR
-    on_a: {table, b, c, d};
-    pos_a: 0..6;
-    on_b: {table, a, c, d};
-    pos_b: 0..6;
-    on_c: {table, a, b, d};
-    pos_c: 0..6;
-    on_d: {table, a, b, c};
-    pos_d: 0..6;
+  -- on_X armazena em que o bloco X está (como um inteiro).
+  on_a : 0..4;
+  on_b : 0..4;
+  on_c : 0..4;
+  on_d : 0..4;
 
-    move: {
-        none,
-        move_a_on_b, move_a_on_c, move_a_on_d,
-        move_a_table_0, move_a_table_1, move_a_table_2, move_a_table_3, move_a_table_4, move_a_table_5, move_a_table_6,
-        move_b_on_a, move_b_on_c, move_b_on_d,
-        move_b_table_0, move_b_table_1, move_b_table_2, move_b_table_3, move_b_table_4, move_b_table_5, move_b_table_6,
-        move_c_on_d,
-        move_c_table_0, move_c_table_1, move_c_table_2, move_c_table_3, move_c_table_4, move_c_table_5,
-        move_d_on_c,
-        move_d_table_0, move_d_table_1, move_d_table_2, move_d_table_3, move_d_table_4, move_d_table_5
-    };
+  -- pos_X armazena a posição inicial na mesa (coluna 0 a 6).
+  -- Só é relevante se on_X = target_table.
+  pos_a : 0..TABLE_SIZE - size_a;
+  pos_b : 0..TABLE_SIZE - size_b;
+  pos_c : 0..TABLE_SIZE - size_c;
+  pos_d : 0..TABLE_SIZE - size_d;
 
 DEFINE
-    -- Block Sizes
-    size_a := 1;
-    size_b := 1;
-    size_c := 2;
-    size_d := 2;
+  -- Um bloco está "clear" (livre) se nenhum outro bloco estiver sobre ele.
+  -- Esta lógica agora funciona porque 'target_a', 'target_c' etc.
+  -- são interpretados sem ambiguidade como as constantes 1, 3, etc.
+  clear_a := (on_b != target_a & on_c != target_a & on_d != target_a);
+  clear_b := (on_a != target_b & on_c != target_b & on_d != target_b);
+  clear_c := (on_a != target_c & on_b != target_c & on_d != target_c);
+  clear_d := (on_a != target_d & on_b != target_d & on_c != target_d);
 
-    -- Clear Conditions (unchanged)
-    clear_a := (on_b != a) & (on_c != a) & (on_d != a);
-    clear_b := (on_a != b) & (on_c != b) & (on_d != b);
-    clear_c := (on_a != c) & (on_b != c) & (on_d != c);
-    clear_d := (on_a != d) & (on_b != d) & (on_c != d);
-
-    -- *** ABSOLUTE POSITION CALCULATION (NON-RECURSIVE FIX) ***
-    -- The absolute position is the table position (pos_X) of the bottom-most block in the stack.
-    -- Since we have 4 blocks, we must check all stack possibilities up to height 4.
-    
-    abs_pos_a := case
-        on_a = table : pos_a; -- A is the base
-        on_a = b & on_b = table : pos_b; -- A on B, B is the base
-        on_a = c & on_c = table : pos_c; -- A on C, C is the base
-        on_a = d & on_d = table : pos_d; -- A on D, D is the base
-
-        -- A on X on Y (Y is the base)
-        on_a = b & on_b = c & on_c = table : pos_c;
-        on_a = b & on_b = d & on_d = table : pos_d;
-        on_a = c & on_c = b & on_b = table : pos_b;
-        on_a = c & on_c = d & on_d = table : pos_d;
-        on_a = d & on_d = b & on_b = table : pos_b;
-        on_a = d & on_d = c & on_c = table : pos_c;
-
-        -- A on X on Y on Z (Z is the base)
-        on_a = b & on_b = c & on_c = d & on_d = table : pos_d;
-        on_a = b & on_b = d & on_d = c & on_c = table : pos_c;
-        on_a = c & on_c = b & on_b = d & on_d = table : pos_d;
-        on_a = c & on_c = d & on_d = b & on_b = table : pos_b;
-        on_a = d & on_d = b & on_b = c & on_c = table : pos_c;
-        on_a = d & on_d = c & on_c = b & on_b = table : pos_b;
-
-        -- A on X on Y on Z on W (W is the base) - Max height is 4, so this covers all cases.
-        -- We include the initial recursive definition as a TRUE fallback (though it won't be used) to ensure type compatibility if necessary, but this CASE statement should be exhaustive for the 4-block problem.
-        TRUE : pos_a; 
-    esac;
-    
-    -- Since the full exhaustive case logic is complex and error-prone, a common simplification is used when the model checker can infer the base position by the transitive closure of the 'on' relation, but since we have the error, we stick to the exhaustive check.
-    
-    -- For B:
-    abs_pos_b := case
-        on_b = table : pos_b;
-        on_b = a & on_a = table : pos_a;
-        on_b = c & on_c = table : pos_c;
-        on_b = d & on_d = table : pos_d;
-
-        on_b = a & on_a = c & on_c = table : pos_c;
-        on_b = a & on_a = d & on_d = table : pos_d;
-        on_b = c & on_c = a & on_a = table : pos_a;
-        on_b = c & on_c = d & on_d = table : pos_d;
-        on_b = d & on_d = a & on_a = table : pos_a;
-        on_b = d & on_d = c & on_c = table : pos_c;
-
-        on_b = a & on_a = c & on_c = d & on_d = table : pos_d;
-        on_b = a & on_a = d & on_d = c & on_c = table : pos_c;
-        on_b = c & on_c = a & on_a = d & on_d = table : pos_d;
-        on_b = c & on_c = d & on_d = a & on_a = table : pos_a;
-        on_b = d & on_d = a & on_a = c & on_c = table : pos_c;
-        on_b = d & on_d = c & on_c = a & on_a = table : pos_a;
-        
-        TRUE : pos_b;
-    esac;
-
-    -- For C:
-    abs_pos_c := case
-        on_c = table : pos_c;
-        on_c = a & on_a = table : pos_a;
-        on_c = b & on_b = table : pos_b;
-        on_c = d & on_d = table : pos_d;
-
-        on_c = a & on_a = b & on_b = table : pos_b;
-        on_c = a & on_a = d & on_d = table : pos_d;
-        on_c = b & on_b = a & on_a = table : pos_a;
-        on_c = b & on_b = d & on_d = table : pos_d;
-        on_c = d & on_d = a & on_a = table : pos_a;
-        on_c = d & on_d = b & on_b = table : pos_b;
-
-        on_c = a & on_a = b & on_b = d & on_d = table : pos_d;
-        on_c = a & on_a = d & on_d = b & on_b = table : pos_b;
-        on_c = b & on_b = a & on_a = d & on_d = table : pos_d;
-        on_c = b & on_b = d & on_d = a & on_a = table : pos_a;
-        on_c = d & on_d = a & on_a = b & on_b = table : pos_b;
-        on_c = d & on_d = b & on_b = a & on_a = table : pos_a;
-
-        TRUE : pos_c;
-    esac;
-    
-    -- For D:
-    abs_pos_d := case
-        on_d = table : pos_d;
-        on_d = a & on_a = table : pos_a;
-        on_d = b & on_b = table : pos_b;
-        on_d = c & on_c = table : pos_c;
-
-        on_d = a & on_a = b & on_b = table : pos_b;
-        on_d = a & on_a = c & on_c = table : pos_c;
-        on_d = b & on_b = a & on_a = table : pos_a;
-        on_d = b & on_b = c & on_c = table : pos_c;
-        on_d = c & on_c = a & on_a = table : pos_a;
-        on_d = c & on_c = b & on_b = table : pos_b;
-
-        on_d = a & on_a = b & on_b = c & on_c = table : pos_c;
-        on_d = a & on_a = c & on_c = b & on_b = table : pos_b;
-        on_d = b & on_b = a & on_a = c & on_c = table : pos_c;
-        on_d = b & on_b = c & on_c = a & on_a = table : pos_a;
-        on_d = c & on_c = a & on_a = b & on_b = table : pos_b;
-        on_d = c & on_c = b & on_b = a & on_a = table : pos_a;
-
-        TRUE : pos_d;
-    esac;
-
-    -- Goal State Definition (unchanged)
-    goal := (on_b = table & pos_b = 2) & (on_a = b) & (on_c = a) & (on_d = c);
-
-INIT
-    (on_d = table & pos_d = 0) &
-    (on_b = d) &
-    (on_a = b) &
-    (on_c = a);
+-- Ações de planejamento como entradas não-determinísticas (IVAR)
+IVAR
+  action : {
+    stay,
+    move_a_to_b, move_a_to_c, move_a_to_d, move_a_to_table,
+    move_b_to_a, move_b_to_c, move_b_to_d, move_b_to_table,
+    move_c_to_a, move_c_to_b, move_c_to_d, move_c_to_table,
+    move_d_to_a, move_d_to_b, move_d_to_c, move_d_to_table
+  };
+  -- Posição alvo na mesa (se a ação for move_X_to_table)
+  target_pos : 0..TABLE_SIZE - 1;
 
 ASSIGN
-    -- The rest of the ASSIGN block remains the same, using abs_pos_X and size_X correctly.
-    -- I omit the rest of the ASSIGN block for brevity since it was not the source of the error, but the fixed DEFINE block must be merged with the original ASSIGN block.
+  -- Estado Inicial: S0
+  -- c em a, b em d. a na mesa, d na mesa.
+  -- Assumindo posições: a em 0, d em 2.
+  init(on_a) := target_table;
+  init(pos_a) := 0;
+  init(on_b) := target_d;
+  init(pos_b) := 0; -- Posição irrelevante
+  init(on_c) := target_a;
+  init(pos_c) := 0; -- Posição irrelevante
+  init(on_d) := target_table;
+  init(pos_d) := 2;
 
-    next(on_a) := case
-        move = move_a_on_b & clear_a & clear_b & on_a != b : b;
-        move = move_a_on_c & clear_a & clear_c & on_a != c : c;
-        move = move_a_on_d & clear_a & clear_d & on_a != d : d;
+-- Restrição de estado invariante
+INVAR
+  -- Restrição de Validade Lógica: um bloco não pode estar sobre si mesmo.
+  on_a != target_a &
+  on_b != target_b &
+  on_c != target_c &
+  on_d != target_d;
 
-        move = move_a_table_0 & clear_a & (on_b=table -> !((0 <= pos_b + size_b - 1) & (pos_b <= 0 + size_a - 1))) & (on_c=table -> !((0 <= pos_c + size_c - 1) & (pos_c <= 0 + size_a - 1))) & (on_d=table -> !((0 <= pos_d + size_d - 1) & (pos_d <= 0 + size_a - 1))) : table;
-        move = move_a_table_1 & clear_a & (on_b=table -> !((1 <= pos_b + size_b - 1) & (pos_b <= 1 + size_a - 1))) & (on_c=table -> !((1 <= pos_c + size_c - 1) & (pos_c <= 1 + size_a - 1))) & (on_d=table -> !((1 <= pos_d + size_d - 1) & (pos_d <= 1 + size_a - 1))) : table;
-        move = move_a_table_2 & clear_a & (on_b=table -> !((2 <= pos_b + size_b - 1) & (pos_b <= 2 + size_a - 1))) & (on_c=table -> !((2 <= pos_c + size_c - 1) & (pos_c <= 2 + size_a - 1))) & (on_d=table -> !((2 <= pos_d + size_d - 1) & (pos_d <= 2 + size_a - 1))) : table;
-        move = move_a_table_3 & clear_a & (on_b=table -> !((3 <= pos_b + size_b - 1) & (pos_b <= 3 + size_a - 1))) & (on_c=table -> !((3 <= pos_c + size_c - 1) & (pos_c <= 3 + size_a - 1))) & (on_d=table -> !((3 <= pos_d + size_d - 1) & (pos_d <= 3 + size_a - 1))) : table;
-        move = move_a_table_4 & clear_a & (on_b=table -> !((4 <= pos_b + size_b - 1) & (pos_b <= 4 + size_a - 1))) & (on_c=table -> !((4 <= pos_c + size_c - 1) & (pos_c <= 4 + size_a - 1))) & (on_d=table -> !((4 <= pos_d + size_d - 1) & (pos_d <= 4 + size_a - 1))) : table;
-        move = move_a_table_5 & clear_a & (on_b=table -> !((5 <= pos_b + size_b - 1) & (pos_b <= 5 + size_a - 1))) & (on_c=table -> !((5 <= pos_c + size_c - 1) & (pos_c <= 5 + size_a - 1))) & (on_d=table -> !((5 <= pos_d + size_d - 1) & (pos_d <= 5 + size_a - 1))) : table;
-        move = move_a_table_6 & clear_a & (on_b=table -> !((6 <= pos_b + size_b - 1) & (pos_b <= 6 + size_a - 1))) & (on_c=table -> !((6 <= pos_c + size_c - 1) & (pos_c <= 6 + size_a - 1))) & (on_d=table -> !((6 <= pos_d + size_d - 1) & (pos_d <= 6 + size_a - 1))) : table;
-        TRUE: on_a;
-    esac;
-
-    next(pos_a) := case
-        (next(on_a) = b) : abs_pos_b;
-        (next(on_a) = c) : abs_pos_c;
-        (next(on_a) = d) : abs_pos_d;
-        move = move_a_table_0 & next(on_a) = table : 0;
-        move = move_a_table_1 & next(on_a) = table : 1;
-        move = move_a_table_2 & next(on_a) = table : 2;
-        move = move_a_table_3 & next(on_a) = table : 3;
-        move = move_a_table_4 & next(on_a) = table : 4;
-        move = move_a_table_5 & next(on_a) = table : 5;
-        move = move_a_table_6 & next(on_a) = table : 6;
-        TRUE: pos_a;
-    esac;
+TRANS
+  case
+    -- Ação Nula: permanecer no estado
+    action = stay :
+      next(on_a) = on_a & next(pos_a) = pos_a &
+      next(on_b) = on_b & next(pos_b) = pos_b &
+      next(on_c) = on_c & next(pos_c) = pos_c &
+      next(on_d) = on_d & next(pos_d) = pos_d;
     
-    -- ... (rest of ASSIGN for on_b, pos_b, on_c, pos_c, on_d, pos_d, move)
-    
-    -- NOTE: In the original ASSIGN block, for moves to the table, you should check
-    -- for conflicts with other blocks *on the table*, so you should use `pos_X` for the 
-    -- table checks, NOT `abs_pos_X`, unless you are certain the `abs_pos_X` logic is correct
-    -- even when X is on a stack (which it is in the corrected DEFINE). However, 
-    -- the most precise check for table moves is against other blocks currently on the table.
-    -- I will assume the table checking logic is fine and the main issue was recursion.
-    
-    -- The table check (e.g., for move_a_table_0):
-    -- move = move_a_table_0 & clear_a & (on_b=table -> !((0 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 0 + size_a - 1))) ... : table;
-    -- Since on_b=table implies abs_pos_b = pos_b, this is equivalent to checking `pos_b`.
-    
-    -- Given the initial state check logic in the original code:
-    -- move = move_a_table_0 & clear_a & is_B_at_table_pos(0, size_a) & is_C_at_table_pos(0, size_a) & is_D_at_table_pos(0, size_a) : table;
-    -- Where is_B_at_table_pos uses `on_b = table`, the simplified check is correct.
+    -- --- Ações: Mover Bloco X para Bloco Y ---
+    action = move_c_to_a & clear_c & clear_a & size_c <= size_a :
+      next(on_c) = target_a &
+      next(on_a) = on_a & next(pos_a) = pos_a &
+      next(on_b) = on_b & next(pos_b) = pos_b &
+      next(on_d) = on_d & next(pos_d) = pos_d &
+      next(pos_c) = pos_c; 
 
-    -- Final ASSIGN block (copied from the last correct version, but using the now-fixed abs_pos)
+    action = move_c_to_b & clear_c & clear_b & size_c <= size_b :
+      next(on_c) = target_b &
+      next(on_a) = on_a & next(pos_a) = pos_a &
+      next(on_b) = on_b & next(pos_b) = pos_b &
+      next(on_d) = on_d & next(pos_d) = pos_d &
+      next(pos_c) = pos_c;
+      
+    action = move_c_to_d & clear_c & clear_d & size_c <= size_d :
+      next(on_c) = target_d &
+      next(on_a) = on_a & next(pos_a) = pos_a &
+      next(on_b) = on_b & next(pos_b) = pos_b &
+      next(on_d) = on_d & next(pos_d) = pos_d &
+      next(pos_c) = pos_c;
+      
+    -- (Adicionar ações para move_a_to_X, move_b_to_X, move_d_to_X)
+    -- ...
+      
+    -- --- Ações: Mover Bloco X para a Mesa ---
+    action = move_c_to_table & clear_c & (target_pos <= TABLE_SIZE - size_c) &
+      !(on_a = target_table & target_pos < pos_a + size_a & pos_a < target_pos + size_c) &
+      !(on_b = target_table & target_pos < pos_b + size_b & pos_b < target_pos + size_c) &
+      !(on_d = target_table & target_pos < pos_d + size_d & pos_d < target_pos + size_c) :
+        next(on_c) = target_table & next(pos_c) = target_pos &
+        next(on_a) = on_a & next(pos_a) = pos_a &
+        next(on_b) = on_b & next(pos_b) = pos_b &
+        next(on_d) = on_d & next(pos_d) = pos_d;
 
-    next(on_b) := case
-        move = move_b_on_a & clear_b & clear_a & on_b != a : a;
-        move = move_b_on_c & clear_b & clear_c & on_b != c : c;
-        move = move_b_on_d & clear_b & clear_d & on_b != d : d;
+    action = move_b_to_table & clear_b & (target_pos <= TABLE_SIZE - size_b) &
+      !(on_a = target_table & target_pos < pos_a + size_a & pos_a < target_pos + size_b) &
+      !(on_c = target_table & target_pos < pos_c + size_c & pos_c < target_pos + size_b) &
+      !(on_d = target_table & target_pos < pos_d + size_d & pos_d < target_pos + size_b) :
+        next(on_b) = target_table & next(pos_b) = target_pos &
+        next(on_a) = on_a & next(pos_a) = pos_a &
+        next(on_c) = on_c & next(pos_c) = pos_c &
+        next(on_d) = on_d & next(pos_d) = pos_d;
 
-        move = move_b_table_0 & clear_b & (on_a=table -> !((0 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 0 + size_b - 1))) & (on_c=table -> !((0 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 0 + size_b - 1))) & (on_d=table -> !((0 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 0 + size_b - 1))) : table;
-        move = move_b_table_1 & clear_b & (on_a=table -> !((1 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 1 + size_b - 1))) & (on_c=table -> !((1 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 1 + size_b - 1))) & (on_d=table -> !((1 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 1 + size_b - 1))) : table;
-        move = move_b_table_2 & clear_b & (on_a=table -> !((2 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 2 + size_b - 1))) & (on_c=table -> !((2 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 2 + size_b - 1))) & (on_d=table -> !((2 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 2 + size_b - 1))) : table;
-        move = move_b_table_3 & clear_b & (on_a=table -> !((3 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 3 + size_b - 1))) & (on_c=table -> !((3 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 3 + size_b - 1))) & (on_d=table -> !((3 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 3 + size_b - 1))) : table;
-        move = move_b_table_4 & clear_b & (on_a=table -> !((4 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 4 + size_b - 1))) & (on_c=table -> !((4 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 4 + size_b - 1))) & (on_d=table -> !((4 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 4 + size_b - 1))) : table;
-        move = move_b_table_5 & clear_b & (on_a=table -> !((5 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 5 + size_b - 1))) & (on_c=table -> !((5 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 5 + size_b - 1))) & (on_d=table -> !((5 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 5 + size_b - 1))) : table;
-        move = move_b_table_6 & clear_b & (on_a=table -> !((6 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 6 + size_b - 1))) & (on_c=table -> !((6 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 6 + size_b - 1))) & (on_d=table -> !((6 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 6 + size_b - 1))) : table;
-        TRUE: on_b;
-    esac;
-
-    next(pos_b) := case
-        (next(on_b) = a) : abs_pos_a;
-        (next(on_b) = c) : abs_pos_c;
-        (next(on_b) = d) : abs_pos_d;
-        move = move_b_table_0 & next(on_b) = table : 0;
-        move = move_b_table_1 & next(on_b) = table : 1;
-        move = move_b_table_2 & next(on_b) = table : 2;
-        move = move_b_table_3 & next(on_b) = table : 3;
-        move = move_b_table_4 & next(on_b) = table : 4;
-        move = move_b_table_5 & next(on_b) = table : 5;
-        move = move_b_table_6 & next(on_b) = table : 6;
-        TRUE: pos_b;
-    esac;
-
-    next(on_c) := case
-        move = move_c_on_d & clear_c & clear_d & on_c != d : d;
+    action = move_a_to_table & clear_a & (target_pos <= TABLE_SIZE - size_a) &
+      !(on_b = target_table & target_pos < pos_b + size_b & pos_b < target_pos + size_a) &
+      !(on_c = target_table & target_pos < pos_c + size_c & pos_c < target_pos + size_a) &
+      !(on_d = target_table & target_pos < pos_d + size_d & pos_d < target_pos + size_a) :
+        next(on_a) = target_table & next(pos_a) = target_pos &
+        next(on_b) = on_b & next(pos_b) = pos_b &
+        next(on_c) = on_c & next(pos_c) = pos_c &
+        next(on_d) = on_d & next(pos_d) = pos_d;
         
-        move = move_c_table_0 & clear_c & (on_a=table -> !((0 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 0 + size_c - 1))) & (on_b=table -> !((0 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 0 + size_c - 1))) & (on_d=table -> !((0 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 0 + size_c - 1))) : table;
-        move = move_c_table_1 & clear_c & (on_a=table -> !((1 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 1 + size_c - 1))) & (on_b=table -> !((1 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 1 + size_c - 1))) & (on_d=table -> !((1 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 1 + size_c - 1))) : table;
-        move = move_c_table_2 & clear_c & (on_a=table -> !((2 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 2 + size_c - 1))) & (on_b=table -> !((2 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 2 + size_c - 1))) & (on_d=table -> !((2 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 2 + size_c - 1))) : table;
-        move = move_c_table_3 & clear_c & (on_a=table -> !((3 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 3 + size_c - 1))) & (on_b=table -> !((3 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 3 + size_c - 1))) & (on_d=table -> !((3 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 3 + size_c - 1))) : table;
-        move = move_c_table_4 & clear_c & (on_a=table -> !((4 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 4 + size_c - 1))) & (on_b=table -> !((4 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 4 + size_c - 1))) & (on_d=table -> !((4 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 4 + size_c - 1))) : table;
-        move = move_c_table_5 & clear_c & (on_a=table -> !((5 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 5 + size_c - 1))) & (on_b=table -> !((5 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 5 + size_c - 1))) & (on_d=table -> !((5 <= abs_pos_d + size_d - 1) & (abs_pos_d <= 5 + size_c - 1))) : table;
-        TRUE: on_c;
-    esac;
+    action = move_d_to_table & clear_d & (target_pos <= TABLE_SIZE - size_d) &
+      !(on_a = target_table & target_pos < pos_a + size_a & pos_a < target_pos + size_d) &
+      !(on_b = target_table & target_pos < pos_b + size_b & pos_b < target_pos + size_d) &
+      !(on_c = target_table & target_pos < pos_c + size_c & pos_c < target_pos + size_d) :
+        next(on_d) = target_table & next(pos_d) = target_pos &
+        next(on_a) = on_a & next(pos_a) = pos_a &
+        next(on_b) = on_b & next(pos_b) = pos_b &
+        next(on_c) = on_c & next(pos_c) = pos_c;
 
-    next(pos_c) := case
-        (next(on_c) = a) : abs_pos_a;
-        (next(on_c) = b) : abs_pos_b;
-        (next(on_c) = d) : abs_pos_d;
-        move = move_c_table_0 & next(on_c) = table : 0;
-        move = move_c_table_1 & next(on_c) = table : 1;
-        move = move_c_table_2 & next(on_c) = table : 2;
-        move = move_c_table_3 & next(on_c) = table : 3;
-        move = move_c_table_4 & next(on_c) = table : 4;
-        move = move_c_table_5 & next(on_c) = table : 5;
-        TRUE: pos_c;
-    esac;
+    -- --- Ação Ilegal / Bloqueada ---
+    TRUE :
+      next(on_a) = on_a & next(pos_a) = pos_a &
+      next(on_b) = on_b & next(pos_b) = pos_b &
+      next(on_c) = on_c & next(pos_c) = pos_c &
+      next(on_d) = on_d & next(pos_d) = pos_d;
+  esac;
 
-    next(on_d) := case
-        move = move_d_on_c & clear_d & clear_c & on_d != c : c;
+-- --- Definição dos Estados Objetivo (Goals) ---
+DEFINE
+  -- S0 (Inicial): c em a, b em d, a e d na mesa
+  state_s0 := (on_c = target_a & on_b = target_d & on_a = target_table & on_d = target_table);
 
-        move = move_d_table_0 & clear_d & (on_a=table -> !((0 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 0 + size_d - 1))) & (on_b=table -> !((0 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 0 + size_d - 1))) & (on_c=table -> !((0 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 0 + size_d - 1))) : table;
-        move = move_d_table_1 & clear_d & (on_a=table -> !((1 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 1 + size_d - 1))) & (on_b=table -> !((1 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 1 + size_d - 1))) & (on_c=table -> !((1 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 1 + size_d - 1))) : table;
-        move = move_d_table_2 & clear_d & (on_a=table -> !((2 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 2 + size_d - 1))) & (on_b=table -> !((2 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 2 + size_d - 1))) & (on_c=table -> !((2 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 2 + size_d - 1))) : table;
-        move = move_d_table_3 & clear_d & (on_a=table -> !((3 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 3 + size_d - 1))) & (on_b=table -> !((3 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 3 + size_d - 1))) & (on_c=table -> !((3 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 3 + size_d - 1))) : table;
-        move = move_d_table_4 & clear_d & (on_a=table -> !((4 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 4 + size_d - 1))) & (on_b=table -> !((4 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 4 + size_d - 1))) & (on_c=table -> !((4 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 4 + size_d - 1))) : table;
-        move = move_d_table_5 & clear_d & (on_a=table -> !((5 <= abs_pos_a + size_a - 1) & (abs_pos_a <= 5 + size_d - 1))) & (on_b=table -> !((5 <= abs_pos_b + size_b - 1) & (abs_pos_b <= 5 + size_d - 1))) & (on_c=table -> !((5 <= abs_pos_c + size_c - 1) & (abs_pos_c <= 5 + size_d - 1))) : table;
-        TRUE: on_d;
-    esac;
+  -- Sf1: c em a. b, d na mesa.
+  goal_sf1 := (on_c = target_a & on_a = target_table & on_b = target_table & on_d = target_table);
 
-    next(pos_d) := case
-        (next(on_d) = a) : abs_pos_a;
-        (next(on_d) = b) : abs_pos_b;
-        (next(on_d) = c) : abs_pos_c;
-        move = move_d_table_0 & next(on_d) = table : 0;
-        move = move_d_table_1 & next(on_d) = table : 1;
-        move = move_d_table_2 & next(on_d) = table : 2;
-        move = move_d_table_3 & next(on_d) = table : 3;
-        move = move_d_table_4 & next(on_d) = table : 4;
-        move = move_d_table_5 & next(on_d) = table : 5;
-        TRUE: pos_d;
-    esac;
+  -- Sf2: c em d. a, b na mesa.
+  goal_sf2 := (on_c = target_d & on_d = target_table & on_a = target_table & on_b = target_table);
+  
+  -- Sf3: d em c. a, b na mesa.
+  goal_sf3 := (on_d = target_c & on_c = target_table & on_a = target_table & on_b = target_table);
 
-    next(move) := {
-        move = none ? {move_a_on_b, move_a_on_c, move_a_on_d, move_a_table_0, move_a_table_1, move_a_table_2, move_a_table_3, move_a_table_4, move_a_table_5, move_a_table_6, move_b_on_a, move_b_on_c, move_b_on_d, move_b_table_0, move_b_table_1, move_b_table_2, move_b_table_3, move_b_table_4, move_b_table_5, move_b_table_6, move_c_on_d, move_c_table_0, move_c_table_1, move_c_table_2, move_c_table_3, move_c_table_4, move_c_table_5, move_d_on_c, move_d_table_0, move_d_table_1, move_d_table_2, move_d_table_3, move_d_table_4, move_d_table_5} : {none}
-    };
-    
-CTLSPEC !EF(goal);
+  -- Sf4: c em d. a, b na mesa. (Igual a Sf2)
+  goal_sf4 := (on_c = target_d & on_d = target_table & on_a = target_table & on_b = target_table);
+  
+  -- S5 (Aprox.): c em d, d em a, b na mesa.
+  goal_s5_approx := (on_c = target_d & on_d = target_a & on_a = target_table & on_b = target_table);
+  
+  -- S7 (Aprox.): a em c, b na mesa, d na mesa.
+  goal_s7_approx := (on_a = target_c & on_c = target_table & on_b = target_table & on_d = target_table);
+
+-- --- Especificações CTL (para encontrar os planos) ---
+
+-- Tarefa 1: S0 -> sf1, sf2, sf3, sf4
+SPEC EF goal_sf1
+SPEC EF goal_sf2
+SPEC EF goal_sf3
+-- (Verificar Sf3 é difícil, pois size_d=2 não pode ir sobre size_c=1)
+SPEC EF goal_sf4
+
+-- Tarefa 2: S0 -> S5
+SPEC EF goal_s5_approx
+
+-- Tarefa 3: S0 -> S7
+SPEC EF goal_s7_approx
+
+-- Tarefa 4: Gerar planos negando estados
+-- Propriedade "impossível": Bloco d (size 2) sobre a (size 1)
+DEFINE impossible_stability := (on_d = target_a);
+SPEC EF impossible_stability -- Deve retornar FALSE
